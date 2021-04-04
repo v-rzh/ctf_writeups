@@ -82,7 +82,7 @@ for pseudo-random number generation, which means we can recreate `random_code`
 locally (even if we weren't given the seed - one second is a *long* time - we
 could call `time(2)` locally and get the same result).
 
-The plan for the exploitation is straightforward - generate the same random
+The exploitation plan is straightforward - generate the same random
 memory that the service did and find the necessary gadgets for our ROP chain.
 There's only one problem - our ROP gadgets can't be too long. The longer
 the instruction the less chances we have of finding it in the randomly
@@ -92,7 +92,7 @@ What happens if not all gadgets are present? We just try again! I wrapped my
 exploit with a shell script that kept trying until the exploit was successful.
 Through trial and error I found that we can find any two-byte gadget (including
 `ret`) with every attempt. A three-byte gadget already calls for some
-bruteforcing, so we must keep those to a minimum (my rop chain ended up having
+bruteforcing, so we must keep those to a minimum (my ROP chain ended up having
 two three-byte gadgets - I bet there's a better solution out there).
 
 ## Exploit methodology
@@ -117,13 +117,13 @@ rest of the arguments and the syscall number to the respective registers and run
 Here is the list of gadgets we're looking for:
 
 ```asm
-; gadget 0 
+; gadget 0
 ; used to grab the stack address
 89 e3   mov ebx, esp
 c3      ret
 
 ; gadget 1
-; used to page align the stack address 
+; used to page align the stack address
 4b      dec ebx
 c3      ret
 
