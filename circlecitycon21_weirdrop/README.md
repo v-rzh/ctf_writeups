@@ -12,8 +12,8 @@ We get an exploitable service binary.
 [joey@gibson] file weird-rop
 weird-rop: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, BuildID[sha1]=2876651ce7257d4153ee90b05f0b1a2b29f25700, not stripped
 ```
-Neato! The service is a 64-bit ELF. Looks like the binary is statically
-compiled and not stripped making reversing and exploitation much easier for us.
+Neato! The service is a 64-bit ELF. The binary is statically compiled and not
+stripped, making reversing and exploitation much easier for us.
 
 
 ## Reversing
@@ -21,7 +21,7 @@ compiled and not stripped making reversing and exploitation much easier for us.
 Turns out there isn't much to reverse! This is a very lightweight binary,
 written in assembly. Here's the program entry:
 
-```
+```asm
 ┌ 21: entry0 ();
 │           0x00401154      e887ffffff     call loc.vuln
 │           0x00401159      48c7c03c0000.  mov rax, 0x3c
@@ -35,7 +35,7 @@ this](https://chromium.googlesource.com/chromiumos/docs/+/master/constants/sysca
 Or if you're feeling masochistic you can rummage around in `/usr/include`.
 
 Let's take a look at `vuln()`:
-```
+```asm
 │           0x004010e0      55             push rbp
 │           0x004010e1      4889e5         mov rbp, rsp
 │           0x004010e4      4883ec10       sub rsp, 0x10
@@ -46,11 +46,11 @@ Let's take a look at `vuln()`:
 │           0x00401105      0f05           syscall
 ```
 So far we got `open("/flag.txt", O_RDWR)`. Note that this binary isn't actually
-using libc, I'm just using libc functions to make it easier to look at. For
-flags like `O_RDWR` look in `/usr/include` (e.g.
-`/usr/include/asm-generic/fcntl.h`).
+using libc, I'm just using libc functions to make the reversed code easier to
+look at. You can find the definitions of flags like `O_RDWR` in `/usr/include`
+(e.g. `/usr/include/asm-generic/fcntl.h`).
 
-```
+```asm
 │           0x00401107      4883c030       add rax, 0x30
 │           0x0040110b      880424         mov byte [rsp], al
 │           0x0040110e      c64424010a     mov byte [var_1h], 0xa
@@ -68,7 +68,7 @@ represents zero and so on). We store this value on the stack and append `\n` to
 it. The program then outputs this number to the stdout: `write(STDOUT_FILENO,
 stack_pointer, 2);`
 
-```
+```asm
 │           0x0040112d      48c7c0000000.  mov rax, 0
 │           0x00401134      48c7c7000000.  mov rdi, 0
 │           0x0040113b      4889e6         mov rsi, rsp
@@ -90,9 +90,9 @@ control of the program counter.
 ## Yucky Gadgets
 
 Okay so.. what's the problem? Just hunt for some useful gadgets and get that
-easy 300 points right? Let's take a look at some of the gadgets:
+easy 300 points right? Let's see here...
 
-```
+```asm
   0x00401000                 5e  pop rsi
   0x00401001                 c3  ret
 
@@ -102,7 +102,7 @@ easy 300 points right? Let's take a look at some of the gadgets:
 
 Cool cool.
 
-```
+```asm
   0x0040100a     48c7c001000000  mov rax, 1
   0x00401011                 c3  ret
 
@@ -112,24 +112,25 @@ Cool cool.
 
 Nice!
 
-```
+```asm
   0x0040109b     4881f7cd030000  xor rdi, 0x3cd
   0x004010a2                 c3  ret
 
   0x004010d3     4881f79a020000  xor rdi, 0x29a
   0x004010da                 c3  ret
 ```
-... okay?
+Uhm...
 
-```
+```asm
   0x004010cb     4881f7a3010000  xor rdi, 0x1a3
   0x004010d2                 c3  ret
 
   0x004010c3     4881f798010000  xor rdi, 0x198
   0x004010ca                 c3  ret
 ```
+... okay?
 
-26 (if I counted correctly) `xor rdi` gadgets?! Gross.
+26 `xor rdi` gadgets?! Gross.
 
 ## Exploitation Plan
 
@@ -138,8 +139,8 @@ descriptor, telegraphed to us by the service, to read the contents of the flag
 file and then simply write it to standard output.
 
 Most gadgets are already obvious - we can load `1` and `0` into `rax`
-for `write` and `read` system cals respectively. We even have a gadget to load
-`1` into `rdi` for the standard output file descriptor.
+for the `write` and `read` system calls respectively. We even have a gadget to
+load the standard output file descriptor (`1`) into `rdi`.
 
 However we still need to put the flag file descriptor in `rdi` and there is no
 clear gadget candidate for this. Time for some XOR math!
@@ -151,10 +152,14 @@ into the register). I can permute over every possible combination of XOR gadgets
 and break when I get the value I want. `permute.py` is the script that I wrote
 for this task. Take a look - nothing fancy here.
 
-The file descriptor is always `5`, so we can just run `permute.py` once to
-figure out the gadgets we need. (I think the challenge would be more interesting
-if the file descriptor was somewhat random, so that we would have to
-dynamically determine which gadgets we need to use).
+The flag file descriptor is always `5`, so we can just run `permute.py` once to
+figure out the gadgets we need.
+
+_If you are confused that the file descriptor is `5` and not `3` you are
+correct - it's weird. This is likely due to a little bit more code on the
+server side that we don't get to see. (I think the challenge would be more
+interesting if the file descriptor was somewhat random. That way we would have
+to dynamically determine which gadgets to use)._
 
 ```
 [joey@gibson]$ ./permute.py 5
@@ -190,10 +195,10 @@ uint8_t exploit[EXPLOIT_LEN] = {
 First 24 bytes is the filler for the stack - recall that the function subtracts
 `0x10` from the stack pointer and pops a register. We covered what is going on
 with the first two gadgets. The next gadget pops `0x19` into `rdx`, which is
-the length of our read. Finally we shove the `read` syscall number into `rax`
+the length of our read. Finally, we shove the `read` syscall number into `rax`
 and call it. Then we simply use the gadgets to load the `write` syscall number
-and place stdout file decriptor (`1`) as its first argument (the other two
-arguments in registers `rsi` and `rdx` remain the same). That's it!
+and place stdout file decriptor (`1`) as its first argument. The other two
+arguments in registers `rsi` and `rdx` remain the same. That's it!
 
 Let's see it in action:
 
