@@ -31,7 +31,7 @@ written in assembly. Here's the program entry:
 So far so good - the program calls `vuln()` then calls the `exit` system call
 with return code `0`. If you are looking for an easy reference for the ABI
 [bookmark
-this](https://chromium.googlesource.com/chromiumos/docs/+/master/constants/syscalls.md).
+this](https://chromium.googlesource.com/chromiumos/docs/+/HEAD/constants/syscalls.md).
 Or if you're feeling masochistic you can rummage around in `/usr/include`.
 
 Let's take a look at `vuln()`:
