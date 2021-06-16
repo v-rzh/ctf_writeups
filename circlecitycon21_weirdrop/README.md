@@ -32,7 +32,6 @@ So far so good - the program calls `vuln()` then calls the `exit` system call
 with return code `0`. If you are looking for an easy reference for the ABI
 [bookmark
 this](https://chromium.googlesource.com/chromiumos/docs/+/HEAD/constants/syscalls.md).
-Or if you're feeling masochistic you can rummage around in `/usr/include`.
 
 Let's take a look at `vuln()`:
 ```asm
@@ -134,9 +133,9 @@ Uhm...
 
 ## Exploitation Plan
 
-The exploitation path I chose was to take advantage of the open file
-descriptor, telegraphed to us by the service, to read the contents of the flag
-file and then simply write it to standard output.
+The exploitation plan I chose was to take advantage of the open file
+descriptor, telegraphed to us by the service, read the contents of the flag
+file, and simply write it to standard output.
 
 Most gadgets are already obvious - we can load `1` and `0` into `rax`
 for the `write` and `read` system calls respectively. We even have a gadget to
@@ -145,28 +144,28 @@ load the standard output file descriptor (`1`) into `rdi`.
 However we still need to put the flag file descriptor in `rdi` and there is no
 clear gadget candidate for this. Time for some XOR math!
 
-I don't know about you, but I'm pretty lazy, so I'm just going to write a Python
-script to bruteforce the XOR gadgets we need. (Note that since the `rdi`
+I don't know about you, but I'm pretty lazy, so I just wrote a Python
+script to bruteforce the needed XOR gadgets. (Note that since the `rdi`
 register is nulled out, the first XOR gadget will just put the immediate value
-into the register). I can permute over every possible combination of XOR gadgets
-and break when I get the value I want. `permute.py` is the script that I wrote
-for this task. Take a look - nothing fancy here.
+into the register). The script permutes over every possible combination of XOR
+gadgets and breaks when the value is found. `permute.py` is the script I wrote
+for this task. Take a look - nothing too fancy there.
 
 The flag file descriptor is always `5`, so we can just run `permute.py` once to
 figure out the gadgets we need.
 
 _If you are confused that the file descriptor is `5` and not `3` you are
-correct - it's weird. This is likely due to a little bit more code on the
-server side that we don't get to see. (I think the challenge would be more
-interesting if the file descriptor was somewhat random. That way we would have
+not alone - it's weird. This is likely due to a little bit more code on the
+server side that we don't get to see. (I think the challenge would have been
+more interesting if the file descriptor was somewhat random. That way, we'd have
 to dynamically determine which gadgets to use)._
 
 ```
 [joey@gibson]$ ./permute.py 5
 0x56 0x53
 ```
-Great - so the xor gadgets that use these two operands is what we need. We
-should have all of the key elements of our exploit. This is the ROP chain I
+Great - so the xor gadgets that have these two operands is what we need. We
+now have all of the key elements of our exploit. This is the ROP chain I
 came up with:
 
 ```C
@@ -192,15 +191,13 @@ uint8_t exploit[EXPLOIT_LEN] = {
 };
 ```
 
-First 24 bytes is the filler for the stack - recall that the function subtracts
-`0x10` from the stack pointer and pops a register. We covered what is going on
-with the first two gadgets. The next gadget pops `0x19` into `rdx`, which is
-the length of our read. Finally, we shove the `read` syscall number into `rax`
-and call it. Then we simply use the gadgets to load the `write` syscall number
-and place stdout file decriptor (`1`) as its first argument. The other two
-arguments in registers `rsi` and `rdx` remain the same. That's it!
-
-Let's see it in action:
+First 24 bytes are the filler for the stack - recall that the function subtracts
+`0x10` from the stack pointer and pops a register. The first two gadets are the xor
+gadgets we've determined with `permute.py`. The next gadget pops `0x19` into `rdx`,
+which is the length of our read. Finally, we shove the `read` syscall number into
+`rax` and call it. Then we simply use the gadgets to load the `write` syscall number
+and place stdout file decriptor (`1`) as its first argument. The other two arguments
+in registers `rsi` and `rdx` remain the same throughout the exploit. That's it!
 
 ```bash
 [joey@gibson]$ ./exploit
