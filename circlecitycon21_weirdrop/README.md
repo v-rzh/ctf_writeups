@@ -1,20 +1,18 @@
 ## weirdrop (Circle City Con 2021)
 
-Didn't participate in the ctf, but I noticed that there is no writeup for this
+I didn't participate in the CTF, but I noticed that there is no writeup for this
 challenge, so I decided to address that. :D
-
 
 ## Exploitable Service
 
-We get an exploitable service binary.
+We get the exploitable service binary.
 
 ```bash
 [joey@gibson] file weird-rop
 weird-rop: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, BuildID[sha1]=2876651ce7257d4153ee90b05f0b1a2b29f25700, not stripped
 ```
-Neato! The service is a 64-bit ELF. The binary is statically compiled and not
+Neato! We got a 64-bit ELF. The binary is statically compiled and not
 stripped, making reversing and exploitation much easier for us.
-
 
 ## Reversing
 
@@ -29,7 +27,7 @@ written in assembly. Here's the program entry:
 └           0x00401167      0f05           syscall
 ```
 So far so good - the program calls `vuln()` then calls the `exit` system call
-with return code `0`. If you are looking for an easy reference for the ABI
+with the exit code `0`. If you are looking for an easy reference for the ABI
 [bookmark
 this](https://chromium.googlesource.com/chromiumos/docs/+/HEAD/constants/syscalls.md).
 
@@ -64,8 +62,8 @@ At this point the `rax` register holds the file descriptor returned by the
 `open` syscall. The program adds `0x30` to the file descriptor, which is a
 low-tech way of turning a digit into its ASCII representation (`0x30`
 represents zero and so on). We store this value on the stack and append `\n` to
-it. The program then outputs this number to the stdout: `write(STDOUT_FILENO,
-stack_pointer, 2);`
+it. The program then outputs this number to the standard output:
+`write(STDOUT_FILENO, stack_pointer, 2);`
 
 ```asm
 │           0x0040112d      48c7c0000000.  mov rax, 0
@@ -78,11 +76,11 @@ stack_pointer, 2);`
 │           0x00401152      5d             pop rbp
 └           0x00401153      c3             ret
 ```
-Boils down to this:
+Reverses to this:
 `read(STDOUT_FILENO, stack_ptr, 200);`
 
-The final chunk of this function reads `0xc8` bytes on the stack, nulls out
-the `rdi` register, does some final cleanup, and returns. Obviously this is the
+The final chunk of this function reads `0xc8` bytes into the stack, nulls out
+the `rdi` register, does some cleanup, and returns. Obviously this is the
 vulnerability - we can overwrite the return address on the stack and gain
 control of the program counter.
 
@@ -135,14 +133,15 @@ Uhm...
 
 The exploitation plan I chose was to take advantage of the open file
 descriptor, telegraphed to us by the service, read the contents of the flag
-file, and simply write it to standard output.
+file, and simply write it to the standard output.
 
 Most gadgets are already obvious - we can load `1` and `0` into `rax`
 for the `write` and `read` system calls respectively. We even have a gadget to
 load the standard output file descriptor (`1`) into `rdi`.
 
 However we still need to put the flag file descriptor in `rdi` and there is no
-clear gadget candidate for this. Time for some XOR math!
+clear gadget candidate for this. We just got a bunch of awkward XOR gadgets and
+that means it's time some XOR math!
 
 I don't know about you, but I'm pretty lazy, so I just wrote a Python
 script to bruteforce the needed XOR gadgets. (Note that since the `rdi`
@@ -154,7 +153,7 @@ for this task. Take a look - nothing too fancy there.
 The flag file descriptor is always `5`, so we can just run `permute.py` once to
 figure out the gadgets we need.
 
-_If you are confused that the file descriptor is `5` and not `3` you are
+_If you are confused by the file descriptor being `5` and not `3` you are
 not alone - it's weird. This is likely due to a little bit more code on the
 server side that we don't get to see. (I think the challenge would have been
 more interesting if the file descriptor was somewhat random. That way, we'd have
@@ -164,7 +163,7 @@ to dynamically determine which gadgets to use)._
 [joey@gibson]$ ./permute.py 5
 0x56 0x53
 ```
-Great - so the xor gadgets that have these two operands is what we need. We
+Great - so the XOR gadgets that have these two operands is what we need. We
 now have all of the key elements of our exploit. This is the ROP chain I
 came up with:
 
@@ -192,7 +191,7 @@ uint8_t exploit[EXPLOIT_LEN] = {
 ```
 
 First 24 bytes are the filler for the stack - recall that the function subtracts
-`0x10` from the stack pointer and pops a register. The first two gadets are the xor
+`0x10` from the stack pointer and pops a register. The first two gadets are the XOR
 gadgets we've determined with `permute.py`. The next gadget pops `0x19` into `rdx`,
 which is the length of our read. Finally, we shove the `read` syscall number into
 `rax` and call it. Then we simply use the gadgets to load the `write` syscall number
